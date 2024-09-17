@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Real-Time Pitch Shift with Delay</title>
+</head>
+<body>
+  <h1>Real-Time Pitch Shift with Delay</h1>
+  <label for="delayTime">Set Delay (seconds): </label>
+  <input type="number" id="delayTime" min="0" max="5" step="0.1" value="1.0">
+  <br>
+  <label for="pitchShift">Pitch Shift (semitones): </label>
+  <input type="number" id="pitchShift" min="-12" max="12" step="1" value="0">
+  <br>
+  <button id="start">Start</button>
+  <button id="stop" disabled>Stop</button>
+
+  <script>
+    let audioContext;
+    let microphone;
+    let delayNode;
+    let scriptProcessor;
+    let pitchShiftNode;
+    let stream;
+
+    const startButton = document.getElementById('start');
+    const stopButton = document.getElementById('stop');
+    const delayTimeInput = document.getElementById('delayTime');
+    const pitchShiftInput = document.getElementById('pitchShift');
+
+    // Pitch-shift function using granular synthesis (simplified)
+    function pitchShift(buffer, semitoneShift) {
+      const factor = Math.pow(2, semitoneShift / 12);
+      const stretchedBuffer = new Float32Array(buffer.length);
+      for (let i = 0; i < buffer.length; i++) {
+        stretchedBuffer[i] = buffer[Math.floor(i / factor) % buffer.length];
+      }
+      return stretchedBuffer;
+    }
+
+    // Start recording and playback with delay and pitch shift
+    startButton.onclick = async () => {
+      // Initialize AudioContext
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+      try {
+        // Request access to the microphone
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        // Create a MediaStreamSource from the microphone input
+        microphone = audioContext.createMediaStreamSource(stream);
+
+        // Create a DelayNode and set the initial delay time
+        delayNode = audioContext.createDelay(5.0); // Max delay of 5 seconds
+        delayNode.delayTime.value = parseFloat(delayTimeInput.value);
+
+        // Create a ScriptProcessorNode for real-time audio processing
+        scriptProcessor = audioContext.createScriptProcessor(1024, 1, 1);
+
+        // Connect the microphone to the script processor
+        microphone.connect(delayNode);
+        delayNode.connect(scriptProcessor);
+        scriptProcessor.connect(audioContext.destination);
+
+        // Pitch shifting with script processor
+        scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
+          const inputBuffer = audioProcessingEvent.inputBuffer.getChannelData(0);
+          const outputBuffer = audioProcessingEvent.outputBuffer.getChannelData(0);
+
+          // Get pitch shift value
+          const semitoneShift = parseFloat(pitchShiftInput.value);
+
+          // Apply pitch shifting
+          const shiftedBuffer = pitchShift(inputBuffer, semitoneShift);
+
+          // Output the pitch-shifted buffer
+          outputBuffer.set(shiftedBuffer);
+        };
+
+        // Update delay time dynamically
+        delayTimeInput.oninput = () => {
+          delayNode.delayTime.value = parseFloat(delayTimeInput.value);
+        };
+
+        startButton.disabled = true;
+        stopButton.disabled = false;
+      } catch (err) {
+        console.error('Error accessing the microphone:', err);
+      }
+    };
+
+    // Stop recording and playback
+    stopButton.onclick = () => {
+      if (audioContext) {
+        // Stop the microphone stream and disconnect the nodes
+        stream.getTracks().forEach(track => track.stop());
+        microphone.disconnect();
+        scriptProcessor.disconnect();
+        delayNode.disconnect();
+        audioContext.close();
+
+        startButton.disabled = false;
+        stopButton.disabled = true;
+      }
+    };
+  </script>
+</body>
+</html>
